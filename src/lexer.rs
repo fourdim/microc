@@ -105,7 +105,9 @@ impl Lexer {
     fn get_next_token(&mut self) -> Token {
         while self.last_char.is_whitespace() {
             if self.last_char != '\n' {
-                self.column += 1;
+                if self.offset != 0 {
+                    self.column += 1;
+                }
             } else {
                 self.column = 0;
                 self.line += 1;
@@ -127,7 +129,7 @@ impl Lexer {
                 Some(ch) => ch,
                 None => {
                     self.last_char = ' ';
-                    return self.identifier_keywords_check(token, scanned_string);
+                    return self.new_identifier_or_keyword(token, scanned_string);
                 }
             };
 
@@ -137,28 +139,16 @@ impl Lexer {
                     Some(ch) => ch,
                     None => {
                         self.last_char = ' ';
-                        return self.identifier_keywords_check(token, scanned_string);
+                        return self.new_identifier_or_keyword(token, scanned_string);
                     }
                 };
             }
 
-            return self.identifier_keywords_check(token, scanned_string);
+            return self.new_identifier_or_keyword(token, scanned_string);
         }
 
         if self.last_char.is_ascii_digit() {
             let mut scanned_string = String::from("");
-            scanned_string.push(self.last_char);
-
-            self.last_char = match self.get_cursor() {
-                Some(ch) => ch,
-                None => {
-                    self.last_char = ' ';
-                    self.column += scanned_string.len();
-                    token.set_type(TokenType::IntLiteral);
-                    token.set_inner_string(scanned_string);
-                    return token;
-                }
-            };
 
             while self.last_char.is_ascii_digit() {
                 scanned_string.push(self.last_char);
@@ -166,19 +156,13 @@ impl Lexer {
                     Some(ch) => ch,
                     None => {
                         self.last_char = ' ';
-                        self.column += scanned_string.len();
-                        token.set_type(TokenType::IntLiteral);
-                        token.set_inner_string(scanned_string);
-                        return token;
+                        return self.new_int_literal(scanned_string, token);
                     }
                 };
             }
 
             if self.last_char.is_whitespace() {
-                self.column += scanned_string.len();
-                token.set_type(TokenType::IntLiteral);
-                token.set_inner_string(scanned_string);
-                return token;
+                return self.new_int_literal(scanned_string, token);
             }
 
             while !self.last_char.is_whitespace() {
@@ -206,7 +190,14 @@ impl Lexer {
         }
     }
 
-    fn identifier_keywords_check(&mut self, mut token: Token, scanned_string: String) -> Token {
+    fn new_int_literal(&mut self, scanned_string: String, mut token: Token) -> Token {
+        self.column += scanned_string.len();
+        token.set_type(TokenType::IntLiteral);
+        token.set_inner_string(scanned_string);
+        return token;
+    }
+
+    fn new_identifier_or_keyword(&mut self, mut token: Token, scanned_string: String) -> Token {
         self.column += scanned_string.len();
 
         macro_rules! check_keyword {
