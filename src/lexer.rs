@@ -1,5 +1,12 @@
+use std::str::Chars;
+
+use crate::char_utils;
+
+const EOF_CHAR: char = '\0';
+
 #[derive(PartialEq, Debug)]
 pub enum TokenType {
+    Whitespace,
     Begin,
     End,
     Read,
@@ -13,12 +20,15 @@ pub enum TokenType {
     OpAssign,
     OpPlus,
     OpMinus,
+    LineComment,
+    Unknown,
     ScanEof,
 }
 
 impl TokenType {
     fn as_str(&self) -> &'static str {
         match self {
+            TokenType::Whitespace => "Whitespace",
             TokenType::Begin => "BEGIN",
             TokenType::Comma => ",",
             TokenType::End => "END",
@@ -32,20 +42,9 @@ impl TokenType {
             TokenType::OpAssign => "=",
             TokenType::OpPlus => "+",
             TokenType::OpMinus => "-",
+            TokenType::LineComment => "LineComment",
+            TokenType::Unknown => "Unknown",
             TokenType::ScanEof => "ScanEof",
-        }
-    }
-
-    fn get_by_char(ch: char) -> Option<TokenType> {
-        match ch {
-            ',' => Some(TokenType::Comma),
-            '(' => Some(TokenType::LeftParen),
-            ')' => Some(TokenType::RightParen),
-            ';' => Some(TokenType::Semicolon),
-            '=' => Some(TokenType::OpAssign),
-            '+' => Some(TokenType::OpPlus),
-            '-' => Some(TokenType::OpMinus),
-            _ => None,
         }
     }
 }
@@ -53,7 +52,7 @@ impl TokenType {
 #[derive(Debug)]
 pub struct Token {
     token_type: TokenType,
-    inner_string: String,
+    length: u32,
     line: usize,
     column: usize,
 }
@@ -61,8 +60,8 @@ pub struct Token {
 impl Token {
     pub fn new(lexer: &Lexer) -> Token {
         Token {
-            token_type: TokenType::ScanEof,
-            inner_string: String::from(""),
+            token_type: TokenType::Unknown,
+            length: 0,
             line: lexer.line,
             column: lexer.column,
         }
@@ -72,167 +71,208 @@ impl Token {
         self.token_type = token_type
     }
 
-    pub fn set_inner_string(&mut self, inner_string: String) {
-        self.inner_string = inner_string;
+    pub fn set_length(&mut self, len: u32) {
+        self.length = len;
     }
 }
 
-pub struct Lexer {
-    source: String,
+pub struct Lexer<'a> {
+    len_remaining: usize,
+    source: &'a str,
+    /// Iterator over chars. Slightly faster than a &str.
+    chars: Chars<'a>,
     line: usize,
     column: usize,
     offset: usize,
-    last_char: char,
 }
 
-impl Lexer {
-    pub fn new(content: String) -> Lexer {
+impl<'a> Lexer<'a> {
+    pub fn new(content: &'a str) -> Lexer<'a> {
         Lexer {
+            len_remaining: content.len(),
             source: content,
-            line: 0,
-            column: 0,
+            chars: content.chars(),
+            line: 1,
+            column: 1,
             offset: 0,
-            last_char: ' ',
         }
     }
 
-    fn get_cursor(&mut self) -> Option<char> {
-        let result = self.source.chars().nth(self.offset);
+    /// Peeks the next symbol from the input stream without consuming it.
+    /// If requested position doesn't exist, `EOF_CHAR` is returned.
+    /// However, getting `EOF_CHAR` doesn't always mean actual end of file,
+    /// it should be checked with `is_eof` method.
+    fn first(&self) -> char {
+        // `.next()` optimizes better than `.nth(0)`
+        self.chars.clone().next().unwrap_or(EOF_CHAR)
+    }
+
+    /// Peeks the second symbol from the input stream without consuming it.
+    fn second(&self) -> char {
+        // `.next()` optimizes better than `.nth(1)`
+        let mut iter = self.chars.clone();
+        iter.next();
+        iter.next().unwrap_or(EOF_CHAR)
+    }
+
+    /// Checks if there is nothing more to consume.
+    fn is_eof(&self) -> bool {
+        self.chars.as_str().is_empty()
+    }
+
+    /// Returns amount of already consumed symbols.
+    fn token_length(&self) -> u32 {
+        (self.len_remaining - self.chars.as_str().len()) as u32
+    }
+
+    /// Resets the number of bytes consumed to 0.
+    fn reset_token_length(&mut self) {
+        self.len_remaining = self.chars.as_str().len();
+    }
+
+    /// Moves to the next character.
+    fn bump(&mut self) -> Option<char> {
+        let c = self.chars.next()?;
         self.offset += 1;
-        result
+        if c == '\n' {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
+
+        Some(c)
     }
 
-    fn get_next_token(&mut self) -> Token {
-        while self.last_char.is_whitespace() {
-            if self.last_char != '\n' {
-                if self.offset != 0 {
-                    self.column += 1;
-                }
-            } else {
-                self.column = 0;
-                self.line += 1;
-            }
-            self.last_char = match self.get_cursor() {
-                Some(ch) => ch,
-                None => return Token::new(self),
-            };
-        }
-
-        let mut token = Token::new(self);
-
-        if self.last_char.is_alphabetic() {
-            let mut scanned_string = String::from("");
-
-            scanned_string.push(self.last_char);
-
-            self.last_char = match self.get_cursor() {
-                Some(ch) => ch,
-                None => {
-                    self.last_char = ' ';
-                    return self.new_identifier_or_keyword(token, scanned_string);
-                }
-            };
-
-            while self.last_char.is_alphanumeric() {
-                scanned_string.push(self.last_char);
-                self.last_char = match self.get_cursor() {
-                    Some(ch) => ch,
-                    None => {
-                        self.last_char = ' ';
-                        return self.new_identifier_or_keyword(token, scanned_string);
-                    }
-                };
-            }
-
-            return self.new_identifier_or_keyword(token, scanned_string);
-        }
-
-        if self.last_char.is_ascii_digit() {
-            let mut scanned_string = String::from("");
-
-            while self.last_char.is_ascii_digit() {
-                scanned_string.push(self.last_char);
-                self.last_char = match self.get_cursor() {
-                    Some(ch) => ch,
-                    None => {
-                        self.last_char = ' ';
-                        return self.new_int_literal(scanned_string, token);
-                    }
-                };
-            }
-
-            if self.last_char.is_whitespace() {
-                return self.new_int_literal(scanned_string, token);
-            }
-
-            while !self.last_char.is_whitespace() {
-                scanned_string.push(self.last_char);
-                self.last_char = match self.get_cursor() {
-                    Some(ch) => ch,
-                    None => self.syntax_error(scanned_string.len()),
-                };
-            }
-
-            self.syntax_error(scanned_string.len())
-        }
-
-        match TokenType::get_by_char(self.last_char) {
-            Some(token_type) => {
-                self.column += 1;
-                token.set_type(token_type);
-                self.last_char = match self.get_cursor() {
-                    Some(ch) => ch,
-                    None => ' ',
-                };
-                token
-            }
-            None => self.syntax_error(1),
+    /// Eats symbols while predicate returns true or until the end of file is reached.
+    fn eat_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
+        // It was tried making optimized version of this for eg. line comments, but
+        // LLVM can inline all of this and compile it down to fast iteration over bytes.
+        while predicate(self.first()) && !self.is_eof() {
+            self.bump();
         }
     }
 
-    fn new_int_literal(&mut self, scanned_string: String, mut token: Token) -> Token {
-        self.column += scanned_string.len();
-        token.set_type(TokenType::IntLiteral);
-        token.set_inner_string(scanned_string);
-        return token;
+    /// Eats symbols until predicate returns true or until the end of file is reached.
+    fn eat_until(&mut self, mut predicate: impl FnMut(char) -> bool) {
+        // It was tried making optimized version of this for eg. line comments, but
+        // LLVM can inline all of this and compile it down to fast iteration over bytes.
+        while !predicate(self.first()) && !self.is_eof() {
+            self.bump();
+        }
     }
 
-    fn new_identifier_or_keyword(&mut self, mut token: Token, scanned_string: String) -> Token {
-        self.column += scanned_string.len();
+    pub fn next_token(&mut self) -> Token {
+        let mut token = Token::new(&self);
 
-        macro_rules! check_keyword {
-            ($x:expr) => {
-                if scanned_string == $x.as_str() {
-                    token.set_type($x);
-                    return token;
+        let first_char = match self.bump() {
+            Some(c) => c,
+            None => {
+                token.set_type(TokenType::ScanEof);
+                return token;
+            }
+        };
+
+        let token_type = match first_char {
+            // OpMinus or line comment.
+            '-' => match self.first() {
+                '-' => {
+                    self.bump();
+                    self.eat_while(|c| c != '\n');
+                    TokenType::LineComment
                 }
-            };
-        }
-
-        check_keyword!(TokenType::Begin);
-        check_keyword!(TokenType::End);
-        check_keyword!(TokenType::Read);
-        check_keyword!(TokenType::Write);
-
-        token.set_type(TokenType::Identifier);
-        token.set_inner_string(scanned_string);
+                _ => TokenType::OpMinus,
+            },
+            c if c.is_whitespace() => {
+                self.eat_while(char_utils::is_whitespace);
+                TokenType::Whitespace
+            }
+            c if c.is_ascii_alphabetic() => {
+                self.eat_while(char_utils::is_identifier_continue);
+                // At here keywords are also identified as identifiers.
+                TokenType::Identifier
+            }
+            '0'..='9' => {
+                self.eat_while(char_utils::is_digit);
+                TokenType::IntLiteral
+            }
+            '(' => TokenType::LeftParen,
+            ')' => TokenType::RightParen,
+            ';' => TokenType::Semicolon,
+            ',' => TokenType::Comma,
+            '=' => TokenType::OpAssign,
+            '+' => TokenType::OpPlus,
+            // Only compile when `usize` is larger or equal to 32 bit.
+            _ => {
+                self.eat_until(char_utils::is_expected);
+                self.syntax_error("unexpected char(s)")
+            }
+        };
+        token.set_type(token_type);
+        token.set_length(self.token_length());
+        self.reset_token_length();
         token
     }
 
-    fn syntax_error(&mut self, len: usize) -> ! {
+    /// Creates an iterator that produces tokens from the input string.
+    pub fn tokenize(&'a mut self) -> impl Iterator<Item = Token> + '_ {
+        std::iter::from_fn(move || {
+            let token = self.next_token();
+            if token.token_type != TokenType::ScanEof {
+                Some(token)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+impl Lexer<'_> {
+    // fn new_int_literal(&mut self, scanned_string: String, mut token: Token) -> Token {
+    //     self.column += scanned_string.len();
+    //     token.set_type(TokenType::IntLiteral);
+    //     token.set_inner_string(scanned_string);
+    //     return token;
+    // }
+
+    // fn new_identifier_or_keyword(&mut self, mut token: Token, scanned_string: String) -> Token {
+    //     self.column += scanned_string.len();
+
+    //     macro_rules! check_keyword {
+    //         ($x:expr) => {
+    //             if scanned_string == $x.as_str() {
+    //                 token.set_type($x);
+    //                 return token;
+    //             }
+    //         };
+    //     }
+
+    //     check_keyword!(TokenType::Begin);
+    //     check_keyword!(TokenType::End);
+    //     check_keyword!(TokenType::Read);
+    //     check_keyword!(TokenType::Write);
+
+    //     token.set_type(TokenType::Identifier);
+    //     token.set_inner_string(scanned_string);
+    //     token
+    // }
+
+    fn syntax_error(&mut self, msg: &str) -> ! {
+        let len = self.token_length() as usize;
         let lines: Vec<&str> = self.source.lines().collect();
-        let width = len + self.column;
+        let width = self.column - 1;
         panic!(
-            r#"microc: syntax error
+            r#"microc: [syntax error] {}
     --> {}:{}
       |
 {:>5} |{}
       |{:>width$}
 "#,
-            self.line + 1,
-            self.column + 1,
-            self.line + 1,
-            lines[self.line],
+            msg,
+            self.line,
+            self.column - len,
+            self.line,
+            lines[self.line - 1],
             "^".repeat(len)
         )
     }
@@ -243,7 +283,7 @@ mod tests {
     use super::*;
     use std::io::{stderr, Write};
 
-    impl Lexer {
+    impl Lexer<'_> {
         fn test_loop(&mut self) {
             std::panic::set_hook(Box::new(|info| {
                 let msg = match info.payload().downcast_ref::<&'static str>() {
@@ -257,11 +297,11 @@ mod tests {
                 writeln!(lock, "{msg}").unwrap();
             }));
             loop {
-                let token = self.get_next_token();
+                let token = self.next_token();
                 if token.token_type == TokenType::ScanEof {
                     let mut count = 3;
                     while count > 0 {
-                        assert_eq!(self.get_next_token().token_type, TokenType::ScanEof);
+                        assert_eq!(self.next_token().token_type, TokenType::ScanEof);
                         count -= 1;
                     }
                     break;
@@ -272,7 +312,7 @@ mod tests {
         fn print_token_list(&mut self) {
             let mut count = 30;
             loop {
-                let token = self.get_next_token();
+                let token = self.next_token();
 
                 println!("{:?}", token);
 
@@ -285,7 +325,7 @@ mod tests {
                 if token.token_type == TokenType::ScanEof {
                     let mut count = 3;
                     while count > 0 {
-                        assert_eq!(self.get_next_token().token_type, TokenType::ScanEof);
+                        assert_eq!(self.next_token().token_type, TokenType::ScanEof);
                         count -= 1;
                     }
                     break;
@@ -302,8 +342,7 @@ mod tests {
         BEGIN END
 
 
-        "#
-            .to_string(),
+        "#,
         );
         lexer.test_loop();
     }
@@ -317,15 +356,26 @@ mod tests {
         1EGIN END
 
 
-        "#
-            .to_string(),
+        "#,
+        );
+        lexer.test_loop();
+    }
+
+    #[test]
+    #[should_panic]
+    fn handle_nonexist_char() {
+        let mut lexer = Lexer::new(
+            r#"
+        BEGIN ****()
+        END
+        "#,
         );
         lexer.test_loop();
     }
 
     #[test]
     fn handle_a_plus_b() {
-        let mut lexer = Lexer::new(r#"BEGIN READ(a, b); WRITE(a + b); END"#.to_string());
+        let mut lexer = Lexer::new(r#"BEGIN READ(a, b); WRITE(a + b); END"#);
         lexer.print_token_list();
     }
 }
