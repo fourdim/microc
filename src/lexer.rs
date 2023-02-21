@@ -11,7 +11,7 @@ pub enum TokenType {
     End,
     Read,
     Write,
-    Identifier,
+    Identifier { name: Box<str> },
     IntLiteral,
     LeftParen,
     RightParen,
@@ -29,12 +29,12 @@ impl TokenType {
     fn as_str(&self) -> &'static str {
         match self {
             TokenType::Whitespace => "Whitespace",
-            TokenType::Begin => "BEGIN",
+            TokenType::Begin => "begin",
             TokenType::Comma => ",",
-            TokenType::End => "END",
-            TokenType::Read => "READ",
-            TokenType::Write => "WRITE",
-            TokenType::Identifier => "Identifier",
+            TokenType::End => "end",
+            TokenType::Read => "read",
+            TokenType::Write => "write",
+            TokenType::Identifier { name: _ } => "Identifier",
             TokenType::IntLiteral => "IntLiteral",
             TokenType::LeftParen => "(",
             TokenType::RightParen => ")",
@@ -55,6 +55,7 @@ pub struct Token {
     length: u32,
     line: usize,
     column: usize,
+    offset: usize,
 }
 
 impl Token {
@@ -64,6 +65,7 @@ impl Token {
             length: 0,
             line: lexer.line,
             column: lexer.column,
+            offset: lexer.offset,
         }
     }
 
@@ -107,14 +109,6 @@ impl<'a> Lexer<'a> {
         self.chars.clone().next().unwrap_or(EOF_CHAR)
     }
 
-    /// Peeks the second symbol from the input stream without consuming it.
-    fn second(&self) -> char {
-        // `.next()` optimizes better than `.nth(1)`
-        let mut iter = self.chars.clone();
-        iter.next();
-        iter.next().unwrap_or(EOF_CHAR)
-    }
-
     /// Checks if there is nothing more to consume.
     fn is_eof(&self) -> bool {
         self.chars.as_str().is_empty()
@@ -127,13 +121,13 @@ impl<'a> Lexer<'a> {
 
     /// Resets the number of bytes consumed to 0.
     fn reset_token_length(&mut self) {
+        self.offset += self.token_length() as usize;
         self.len_remaining = self.chars.as_str().len();
     }
 
     /// Moves to the next character.
     fn bump(&mut self) -> Option<char> {
         let c = self.chars.next()?;
-        self.offset += 1;
         if c == '\n' {
             self.line += 1;
             self.column = 1;
@@ -142,6 +136,13 @@ impl<'a> Lexer<'a> {
         }
 
         Some(c)
+    }
+
+    fn get_token_string(&self) -> String {
+        // let start = self.source.len() - self.len_remaining;
+        // let end = self.source.len() - self.chars.as_str().len();
+        // self.source[start..end].to_string()
+        self.source[self.offset..self.offset + self.token_length() as usize].to_string()
     }
 
     /// Eats symbols while predicate returns true or until the end of file is reached.
@@ -189,8 +190,17 @@ impl<'a> Lexer<'a> {
             }
             c if c.is_ascii_alphabetic() => {
                 self.eat_while(char_utils::is_identifier_continue);
-                // At here keywords are also identified as identifiers.
-                TokenType::Identifier
+                let token_string = self.get_token_string();
+                println!("{}", token_string);
+                match token_string.as_str() {
+                    "begin" => TokenType::Begin,
+                    "end" => TokenType::End,
+                    "read" => TokenType::Read,
+                    "write" => TokenType::Write,
+                    _ => TokenType::Identifier {
+                        name: token_string.into(),
+                    },
+                }
             }
             '0'..='9' => {
                 self.eat_while(char_utils::is_digit);
@@ -339,7 +349,7 @@ mod tests {
         let mut lexer = Lexer::new(
             r#"
 
-        BEGIN END
+        begin end
 
 
         "#,
@@ -353,7 +363,7 @@ mod tests {
         let mut lexer = Lexer::new(
             r#"
 
-        1EGIN END
+        1egin end
 
 
         "#,
@@ -366,8 +376,8 @@ mod tests {
     fn handle_nonexist_char() {
         let mut lexer = Lexer::new(
             r#"
-        BEGIN ****()
-        END
+        begin ****()
+        end
         "#,
         );
         lexer.test_loop();
@@ -375,7 +385,7 @@ mod tests {
 
     #[test]
     fn handle_a_plus_b() {
-        let mut lexer = Lexer::new(r#"BEGIN READ(a, b); WRITE(a + b); END"#);
+        let mut lexer = Lexer::new(r#"  begin read(a, b); write(a + b); end"#);
         lexer.print_token_list();
     }
 }

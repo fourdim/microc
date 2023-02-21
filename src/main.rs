@@ -1,5 +1,6 @@
 use lexer::Lexer;
 
+mod ast;
 mod char_utils;
 mod lexer;
 
