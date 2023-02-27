@@ -34,6 +34,10 @@ pub enum ExprKind {
         calle: SyscallKind,
         args: Vec<ExprAST>,
     },
+    AssignmentAST {
+        var: Box<ExprAST>,
+        assign: Box<ExprAST>,
+    },
 }
 
 pub struct ASTBuilder<I> {
@@ -174,6 +178,24 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
         }
     }
 
+    pub fn parse_assign(&mut self) -> Option<Box<ExprAST>> {
+        let id = match self.current.clone().token_type {
+            TokenType::Identifier { name } => Some(Box::new(ExprAST {
+                kind: ExprKind::VariableExprAST { name },
+            })),
+            _ => panic!(),
+        }?;
+        self.next();
+        self.next();
+
+        Some(Box::new(ExprAST {
+            kind: ExprKind::AssignmentAST {
+                var: id,
+                assign: self.parse_expression()?,
+            },
+        }))
+    }
+
     pub fn parse(&mut self) {
         let mut program_start = false;
         loop {
@@ -195,7 +217,10 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
                     }
                 }
             }
-            let v = self.parse_expression();
+            let v = match self.current.clone().token_type {
+                TokenType::Identifier { name: _ } => self.parse_assign(),
+                _ => self.parse_expression(),
+            };
             println!("{:?}", v);
         }
     }
@@ -209,6 +234,14 @@ mod tests {
     #[test]
     fn handle_a_plus_b() {
         let mut lexer = Lexer::new(r#"begin read(a, b); write(a + b); end"#);
+        let iter = lexer.tokenize();
+        let mut builder = ASTBuilder::new(Box::new(iter));
+        builder.parse();
+    }
+
+    #[test]
+    fn handle_assign_a() {
+        let mut lexer = Lexer::new(r#"begin a := 1 + 2; end"#);
         let iter = lexer.tokenize();
         let mut builder = ASTBuilder::new(Box::new(iter));
         builder.parse();

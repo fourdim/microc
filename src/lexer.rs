@@ -39,7 +39,7 @@ impl TokenType {
             TokenType::LeftParen => "(",
             TokenType::RightParen => ")",
             TokenType::Semicolon => ";",
-            TokenType::OpAssign => "=",
+            TokenType::OpAssign => ":=",
             TokenType::OpPlus => "+",
             TokenType::OpMinus => "-",
             TokenType::LineComment => "LineComment",
@@ -231,7 +231,13 @@ impl<'a> Lexer<'a> {
             ')' => TokenType::RightParen,
             ';' => TokenType::Semicolon,
             ',' => TokenType::Comma,
-            '=' => TokenType::OpAssign,
+            ':' => match self.first() {
+                '=' => {
+                    self.bump();
+                    TokenType::OpAssign
+                }
+                _ => panic!(),
+            },
             '+' => TokenType::OpPlus,
             // Only compile when `usize` is larger or equal to 32 bit.
             _ => {
