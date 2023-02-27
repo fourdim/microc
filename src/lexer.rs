@@ -4,7 +4,7 @@ use crate::char_utils;
 
 const EOF_CHAR: char = '\0';
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum TokenType {
     Whitespace,
     Begin,
@@ -12,7 +12,7 @@ pub enum TokenType {
     Read,
     Write,
     Identifier { name: Box<str> },
-    IntLiteral,
+    IntLiteral { value: i32 },
     LeftParen,
     RightParen,
     Semicolon,
@@ -35,7 +35,7 @@ impl TokenType {
             TokenType::Read => "read",
             TokenType::Write => "write",
             TokenType::Identifier { name: _ } => "Identifier",
-            TokenType::IntLiteral => "IntLiteral",
+            TokenType::IntLiteral { value: _ } => "IntLiteral",
             TokenType::LeftParen => "(",
             TokenType::RightParen => ")",
             TokenType::Semicolon => ";",
@@ -49,9 +49,9 @@ impl TokenType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
-    token_type: TokenType,
+    pub token_type: TokenType,
     length: u32,
     line: usize,
     column: usize,
@@ -66,6 +66,26 @@ impl Token {
             line: lexer.line,
             column: lexer.column,
             offset: lexer.offset,
+        }
+    }
+
+    pub fn unknown() -> Token {
+        Token {
+            token_type: TokenType::Unknown,
+            length: 0,
+            line: 0,
+            column: 0,
+            offset: 0,
+        }
+    }
+
+    pub fn eof() -> Token {
+        Token {
+            token_type: TokenType::ScanEof,
+            length: 0,
+            line: 0,
+            column: 0,
+            offset: 0,
         }
     }
 
@@ -191,7 +211,6 @@ impl<'a> Lexer<'a> {
             c if c.is_ascii_alphabetic() => {
                 self.eat_while(char_utils::is_identifier_continue);
                 let token_string = self.get_token_string();
-                println!("{}", token_string);
                 match token_string.as_str() {
                     "begin" => TokenType::Begin,
                     "end" => TokenType::End,
@@ -204,7 +223,9 @@ impl<'a> Lexer<'a> {
             }
             '0'..='9' => {
                 self.eat_while(char_utils::is_digit);
-                TokenType::IntLiteral
+                TokenType::IntLiteral {
+                    value: self.get_token_string().parse::<i32>().unwrap(),
+                }
             }
             '(' => TokenType::LeftParen,
             ')' => TokenType::RightParen,
@@ -227,7 +248,14 @@ impl<'a> Lexer<'a> {
     /// Creates an iterator that produces tokens from the input string.
     pub fn tokenize(&'a mut self) -> impl Iterator<Item = Token> + '_ {
         std::iter::from_fn(move || {
-            let token = self.next_token();
+            let mut token = self.next_token();
+            loop {
+                if token.token_type == TokenType::Whitespace {
+                    token = self.next_token();
+                } else {
+                    break;
+                }
+            }
             if token.token_type != TokenType::ScanEof {
                 Some(token)
             } else {
@@ -238,35 +266,6 @@ impl<'a> Lexer<'a> {
 }
 
 impl Lexer<'_> {
-    // fn new_int_literal(&mut self, scanned_string: String, mut token: Token) -> Token {
-    //     self.column += scanned_string.len();
-    //     token.set_type(TokenType::IntLiteral);
-    //     token.set_inner_string(scanned_string);
-    //     return token;
-    // }
-
-    // fn new_identifier_or_keyword(&mut self, mut token: Token, scanned_string: String) -> Token {
-    //     self.column += scanned_string.len();
-
-    //     macro_rules! check_keyword {
-    //         ($x:expr) => {
-    //             if scanned_string == $x.as_str() {
-    //                 token.set_type($x);
-    //                 return token;
-    //             }
-    //         };
-    //     }
-
-    //     check_keyword!(TokenType::Begin);
-    //     check_keyword!(TokenType::End);
-    //     check_keyword!(TokenType::Read);
-    //     check_keyword!(TokenType::Write);
-
-    //     token.set_type(TokenType::Identifier);
-    //     token.set_inner_string(scanned_string);
-    //     token
-    // }
-
     fn syntax_error(&mut self, msg: &str) -> ! {
         let len = self.token_length() as usize;
         let lines: Vec<&str> = self.source.lines().collect();
