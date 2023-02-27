@@ -39,6 +39,7 @@ pub enum ExprKind {
 pub struct ASTBuilder<I> {
     iter: I,
     current: Token,
+    current_string: String,
 }
 
 impl<I: Iterator<Item = Token>> Iterator for ASTBuilder<I> {
@@ -46,6 +47,7 @@ impl<I: Iterator<Item = Token>> Iterator for ASTBuilder<I> {
 
     fn next(&mut self) -> Option<Token> {
         self.current = self.iter.next().unwrap_or(Token::eof());
+        self.current_string = self.current.token_type.as_str().to_string();
         return Some(self.current.clone());
     }
 }
@@ -55,6 +57,7 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
         ASTBuilder {
             iter,
             current: Token::unknown(),
+            current_string: String::new(),
         }
     }
 
@@ -92,16 +95,19 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
 
     // <primary> -> Identifier
     pub fn parse_identifier(&mut self) -> Option<Box<ExprAST>> {
-        let id = match self.current.clone().token_type {
-            TokenType::Identifier { name } => name,
+        let calle = match self.current.clone().token_type {
+            TokenType::Identifier { name } => {
+                self.next();
+                return Some(Box::new(ExprAST {
+                    kind: ExprKind::VariableExprAST { name },
+                }));
+            }
+            TokenType::Read => SyscallKind::Read,
+            TokenType::Write => SyscallKind::Write,
             _ => panic!(),
         };
         self.next();
-        if self.current.token_type != TokenType::LeftParen {
-            return Some(Box::new(ExprAST {
-                kind: ExprKind::VariableExprAST { name: id },
-            }));
-        }
+        self.next();
 
         // '('
         let mut args = Vec::<ExprAST>::new();
@@ -121,11 +127,7 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
 
         // ')'
         self.next();
-        let calle = match &*id {
-            "read" => SyscallKind::Read,
-            "write" => SyscallKind::Write,
-            _ => panic!("Unimplemented system call"),
-        };
+
         Some(Box::new(ExprAST {
             kind: ExprKind::SyscallExprAST { calle, args },
         }))
@@ -161,7 +163,6 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
     // <primary> -> IntLiteral
     // <primary> -> LeftParen <expression> RightParen
     pub fn parse_primary(&mut self) -> Option<Box<ExprAST>> {
-        println!("{:?}", self.current.token_type);
         match self.current.token_type {
             TokenType::Read => self.parse_identifier(),
             TokenType::Write => self.parse_identifier(),
@@ -179,8 +180,14 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
             self.next();
             match self.current.token_type {
                 TokenType::ScanEof => break,
-                TokenType::Begin => program_start = true,
-                TokenType::End => program_start = false,
+                TokenType::Begin => {
+                    program_start = true;
+                    continue;
+                }
+                TokenType::End => {
+                    program_start = false;
+                    continue;
+                }
                 TokenType::Semicolon => continue,
                 _ => {
                     if !program_start {
@@ -195,8 +202,9 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
 }
 
 mod tests {
+    use crate::lexer::Lexer;
+
     use super::*;
-    use lexer::Lexer;
 
     #[test]
     fn handle_a_plus_b() {
