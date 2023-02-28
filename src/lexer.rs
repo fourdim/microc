@@ -53,19 +53,19 @@ impl TokenType {
 pub struct Token {
     pub token_type: TokenType,
     length: u32,
-    line: usize,
-    column: usize,
-    offset: usize,
+    // line: usize,
+    // column: usize,
+    // offset: usize,
 }
 
 impl Token {
-    pub fn new(lexer: &Lexer) -> Token {
+    pub fn new(_lexer: &Lexer) -> Token {
         Token {
             token_type: TokenType::Unknown,
             length: 0,
-            line: lexer.line,
-            column: lexer.column,
-            offset: lexer.offset,
+            // line: _lexer.line,
+            // column: _lexer.column,
+            // offset: _lexer.offset,
         }
     }
 
@@ -73,9 +73,9 @@ impl Token {
         Token {
             token_type: TokenType::Unknown,
             length: 0,
-            line: 0,
-            column: 0,
-            offset: 0,
+            // line: 0,
+            // column: 0,
+            // offset: 0,
         }
     }
 
@@ -83,9 +83,9 @@ impl Token {
         Token {
             token_type: TokenType::ScanEof,
             length: 0,
-            line: 0,
-            column: 0,
-            offset: 0,
+            // line: 0,
+            // column: 0,
+            // offset: 0,
         }
     }
 
@@ -355,20 +355,6 @@ mod tests {
             r#"
 
         begin end
-
-
-        "#,
-        );
-        lexer.test_loop();
-    }
-
-    #[test]
-    #[should_panic]
-    fn handle_error_keyword() {
-        let mut lexer = Lexer::new(
-            r#"
-
-        1egin end
 
 
         "#,

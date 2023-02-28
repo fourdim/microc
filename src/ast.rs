@@ -1,4 +1,4 @@
-use crate::lexer::{self, Token, TokenType};
+use crate::lexer::{Token, TokenType};
 
 #[derive(Debug, Clone)]
 pub enum BinaryOpKind {
@@ -14,7 +14,7 @@ pub enum SyscallKind {
 
 #[derive(Debug, Clone)]
 pub struct ExprAST {
-    kind: ExprKind,
+    pub kind: ExprKind,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +67,9 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
 
     // <expression> -> <primary> <binary op rhs>
     pub fn parse_expression(&mut self) -> Option<Box<ExprAST>> {
-        let lhs = self.parse_primary()?;
+        let lhs = self.parse_primary().unwrap_or(Box::new(ExprAST {
+            kind: ExprKind::IntLiteralExprAST { value: 0 },
+        }));
         return self.parse_bin_op_rhs(lhs);
     }
 
@@ -196,7 +198,8 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
         }))
     }
 
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self) -> Vec<Box<ExprAST>> {
+        let mut p_vec = Vec::<Box<ExprAST>>::new();
         let mut program_start = false;
         loop {
             self.next();
@@ -211,6 +214,7 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
                     continue;
                 }
                 TokenType::Semicolon => continue,
+                TokenType::LineComment => continue,
                 _ => {
                     if !program_start {
                         continue;
@@ -221,11 +225,13 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
                 TokenType::Identifier { name: _ } => self.parse_assign(),
                 _ => self.parse_expression(),
             };
-            println!("{:?}", v);
+            p_vec.push(v.unwrap());
         }
+        p_vec
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::lexer::Lexer;
 
