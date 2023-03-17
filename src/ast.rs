@@ -142,6 +142,13 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
     // <primary> -> IntLiteral
     pub fn parse_int_literal(&mut self) -> Option<Box<ExprAST>> {
         let value = match self.current.token_type {
+            TokenType::OpMinus => {
+                self.next();
+                match self.current.token_type {
+                    TokenType::IntLiteral { value } => -value,
+                    _ => panic!("Not an int literal"),
+                }
+            }
             TokenType::IntLiteral { value } => value,
             _ => panic!("Not an int literal"),
         };
@@ -176,6 +183,7 @@ impl<I: Iterator<Item = Token>> ASTBuilder<I> {
 
             TokenType::IntLiteral { value: _ } => self.parse_int_literal(),
             TokenType::LeftParen => self.parse_paren(),
+            TokenType::OpMinus => self.parse_int_literal(),
             _ => None,
         }
     }
